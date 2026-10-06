@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/panel_animation.h"
 #include "ui/ui_utility.h"
 #include "ui/filter_icons.h"
+#include "ui/painter.h"
 #include "ui/cached_round_corners.h"
 #include "lang/lang_keys.h"
 #include "core/application.h"
@@ -26,29 +27,43 @@ constexpr auto kIconsPerRow = 6;
 
 constexpr auto kIcons = std::array{
 	FilterIcon::Cat,
-	FilterIcon::Crown,
-	FilterIcon::Favorite,
-	FilterIcon::Flower,
+	FilterIcon::Book,
+	FilterIcon::Money,
+	// FilterIcon::Camera,
 	FilterIcon::Game,
+	// FilterIcon::House,
+	FilterIcon::Light,
+	FilterIcon::Like,
+	// FilterIcon::Plus,
+	FilterIcon::Note,
+	FilterIcon::Palette,
+	FilterIcon::Travel,
+	FilterIcon::Sport,
+	FilterIcon::Favorite,
+	FilterIcon::Study,
+	FilterIcon::Airplane,
+	// FilterIcon::Microbe,
+	// FilterIcon::Worker,
+	FilterIcon::Private,
+	FilterIcon::Groups,
+	FilterIcon::All,
+	FilterIcon::Unread,
+	// FilterIcon::Check,
+	FilterIcon::Bots,
+	// FilterIcon::Folders,
+	FilterIcon::Crown,
+	FilterIcon::Flower,
 	FilterIcon::Home,
 	FilterIcon::Love,
 	FilterIcon::Mask,
 	FilterIcon::Party,
-	FilterIcon::Sport,
-	FilterIcon::Study,
 	FilterIcon::Trade,
-	FilterIcon::Travel,
 	FilterIcon::Work,
-
-	FilterIcon::All,
-	FilterIcon::Unread,
 	FilterIcon::Unmuted,
-	FilterIcon::Bots,
 	FilterIcon::Channels,
-	FilterIcon::Groups,
-	FilterIcon::Private,
 	FilterIcon::Custom,
 	FilterIcon::Setup,
+	// FilterIcon::Poo,
 };
 
 constexpr auto kLocalIcons = std::array{
@@ -71,6 +86,8 @@ constexpr auto kLocalIcons = std::array{
 FilterIconPanel::FilterIconPanel(QWidget *parent, bool isLocal)
 : RpWidget(parent)
 , _inner(Ui::CreateChild<Ui::RpWidget>(this))
+, _innerBg(st::emojiPanRadius, st::dialogsBg)
+, _shadow(st::emojiPanAnimation.shadow)
 , _isLocal(isLocal) {
 	setup();
 }
@@ -79,7 +96,7 @@ FilterIconPanel::~FilterIconPanel() {
 	hideFast();
 }
 
-rpl::producer<FilterIcon> FilterIconPanel::chosen() const {
+rpl::producer<FilterIconChosen> FilterIconPanel::chosen() const {
 	return _chosen.events();
 }
 
@@ -93,7 +110,7 @@ void FilterIconPanel::setup() {
 	macWindowDeactivateEvents(
 	) | rpl::filter([=] {
 		return !isHidden();
-	}) | rpl::start_with_next([=] {
+	}) | rpl::on_next([=] {
 		hideAnimated();
 	}, lifetime());
 
@@ -118,13 +135,9 @@ void FilterIconPanel::setupInner() {
 	_inner->resize(full);
 
 	_inner->paintRequest(
-		) | rpl::start_with_next([=](QRect clip) {
+		) | rpl::on_next([=](QRect clip) {
 		auto p = Painter(_inner);
-		Ui::FillRoundRect(
-			p,
-			_inner->rect(),
-			st::emojiPanBg,
-			ImageRoundRadius::Small);
+		_innerBg.paint(p, _inner->rect());
 		p.setFont(st::emojiPanHeaderFont);
 		p.setPen(st::emojiPanHeaderFg);
 		p.drawTextLeft(
@@ -139,15 +152,21 @@ void FilterIconPanel::setupInner() {
 			if (!rect.intersects(clip)) {
 				continue;
 			}
-			if (i == selected) {
+			const auto over = (i == selected);
+			if (over) {
 				Ui::FillRoundRect(
 					p,
 					rect,
-					st::emojiPanHover,
+					st::dialogsBgOver,
 					Ui::StickerHoverCorners);
 			}
 			const auto icon = LookupFilterIcon(kIcons[i]).normal;
-			icon->paintInCenter(p, rect, st::emojiIconFg->c);
+			icon->paintInCenter(
+				p,
+				rect,
+				(over
+					? st::dialogsUnreadBgMutedOver
+					: st::dialogsUnreadBgMuted)->c);
 		}
 		if (_isLocal) {
 			const auto cloudSize = kIcons.size();
@@ -172,7 +191,7 @@ void FilterIconPanel::setupInner() {
 
 	_inner->setMouseTracking(true);
 	_inner->events(
-	) | rpl::start_with_next([=](not_null<QEvent*> e) {
+	) | rpl::on_next([=](not_null<QEvent*> e) {
 		switch (e->type()) {
 		case QEvent::Leave: setSelected(-1); break;
 		case QEvent::MouseMove:
@@ -265,9 +284,12 @@ void FilterIconPanel::mouseRelease(Qt::MouseButton button) {
 		Assert(pressed < kIcons.size() + (_isLocal
 				? kLocalIcons.size()
 				: 0));
-		_chosen.fire_copy(pressed < kIcons.size()
-			? kIcons[pressed]
-			: kLocalIcons[pressed-kIcons.size()]);
+		_chosen.fire({
+			.icon = (pressed < kIcons.size()
+				? kIcons[pressed]
+				: kLocalIcons[pressed-kIcons.size()]),
+			.geometry = countRect(pressed).translated(_inner->pos()),
+		});
 	}
 }
 
@@ -303,15 +325,11 @@ void FilterIconPanel::paintEvent(QPaintEvent *e) {
 		hideFinished();
 	} else {
 		if (!_cache.isNull()) _cache = QPixmap();
-		Ui::Shadow::paint(
-			p,
-			innerRect(),
-			width(),
-			st::emojiPanAnimation.shadow);
+		_shadow.paint(p, innerRect(), st::emojiPanRadius);
 	}
 }
 
-void FilterIconPanel::enterEventHook(QEvent *e) {
+void FilterIconPanel::enterEventHook(QEnterEvent *e) {
 	Core::App().registerLeaveSubscription(this);
 	showAnimated();
 }
@@ -323,7 +341,7 @@ void FilterIconPanel::leaveEventHook(QEvent *e) {
 	} else {
 		_hideTimer.callOnce(kHideTimeoutMs);
 	}
-	return TWidget::leaveEventHook(e);
+	return RpWidget::leaveEventHook(e);
 }
 
 void FilterIconPanel::otherEnter() {
@@ -402,10 +420,15 @@ void FilterIconPanel::startShowAnimation() {
 	if (!_a_show.animating()) {
 		auto image = grabForAnimation();
 
-		_showAnimation = std::make_unique<Ui::PanelAnimation>(st::emojiPanAnimation, Ui::PanelAnimation::Origin::TopRight);
+		_showAnimation = std::make_unique<Ui::PanelAnimation>(st::emojiPanAnimation, Ui::PanelAnimation::Origin::TopLeft);
 		auto inner = rect().marginsRemoved(st::emojiPanMargins);
-		_showAnimation->setFinalImage(std::move(image), QRect(inner.topLeft() * cIntRetinaFactor(), inner.size() * cIntRetinaFactor()));
-		_showAnimation->setCornerMasks(Images::CornersMask(ImageRoundRadius::Small));
+		_showAnimation->setFinalImage(
+			std::move(image),
+			QRect(
+				inner.topLeft() * style::DevicePixelRatio(),
+				inner.size() * style::DevicePixelRatio()),
+			st::emojiPanRadius);
+		_showAnimation->setCornerMasks(Images::CornersMask(st::emojiPanRadius));
 		_showAnimation->start();
 	}
 	hideChildren();
@@ -422,9 +445,9 @@ QImage FilterIconPanel::grabForAnimation() {
 	Ui::SendPendingMoveResizeEvents(this);
 
 	auto result = QImage(
-		size() * cIntRetinaFactor(),
+		size() * style::DevicePixelRatio(),
 		QImage::Format_ARGB32_Premultiplied);
-	result.setDevicePixelRatio(cRetinaFactor());
+	result.setDevicePixelRatio(style::DevicePixelRatio());
 	result.fill(Qt::transparent);
 	if (_inner) {
 		QPainter p(&result);

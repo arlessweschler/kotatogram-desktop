@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/auto_delete_settings.h"
 
 #include "ui/widgets/checkbox.h"
+#include "ui/painter.h"
 #include "lang/lang_keys.h"
 #include "styles/style_chat.h"
 #include "styles/style_layers.h"
@@ -50,7 +51,7 @@ object_ptr<Ui::RpWidget> CreateSliderForTTL(
 	state->points.resize(count, 0);
 
 	raw->widthValue(
-	) | rpl::start_with_next([=](int width) {
+	) | rpl::on_next([=](int width) {
 		for (auto i = 0; i != count; ++i) {
 			state->points[i] = (width * i) / (count - 1);
 		}
@@ -58,7 +59,7 @@ object_ptr<Ui::RpWidget> CreateSliderForTTL(
 	}, lifetime);
 
 	raw->paintRequest(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		auto p = QPainter(raw);
 
 		p.setFont(st->font);
@@ -79,7 +80,7 @@ object_ptr<Ui::RpWidget> CreateSliderForTTL(
 	}, lifetime);
 
 	slider->paintRequest(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		auto p = QPainter(slider);
 		auto hq = PainterHighQualityEnabler(p);
 
@@ -128,7 +129,7 @@ object_ptr<Ui::RpWidget> CreateSliderForTTL(
 				// Try to fill the line with exact number of dash segments.
 				// UPD Doesn't work so well because it changes when clicking.
 				//const auto length = till - from;
-				//const auto offSegmentsCount = int(std::round(
+				//const auto offSegmentsCount = int(base::SafeRound(
 				//	(length - st->dashOn) / (st->dashOn + st->dashOff)));
 				//const auto onSegmentsCount = offSegmentsCount + 1;
 				//const auto idealLength = offSegmentsCount * st->dashOff
@@ -170,7 +171,7 @@ object_ptr<Ui::RpWidget> CreateSliderForTTL(
 			return static_cast<QMouseEvent*>(e.get())->pos();
 		}));
 	}) | rpl::flatten_latest(
-	) | rpl::start_with_next([=](QPoint position) {
+	) | rpl::on_next([=](QPoint position) {
 		state->selected = std::clamp(
 			(position.x() + (state->points[1] / 2)) / state->points[1],
 			0,
@@ -200,7 +201,7 @@ void AutoDeleteSettingsBox(
 	});
 
 	const auto options = std::vector<QString>{
-		tr::lng_manage_messages_ttl_never(tr::now),
+		tr::lng_manage_messages_ttl_disable(tr::now),
 		//u"5 seconds"_q, AssertIsDebug()
 		tr::lng_manage_messages_ttl_after1(tr::now),
 		tr::lng_manage_messages_ttl_after2(tr::now),

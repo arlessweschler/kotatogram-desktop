@@ -25,8 +25,8 @@ void MessagesList::Slice::merge(
 
 	messages.merge(std::begin(moreMessages), std::end(moreMessages));
 	range = {
-		qMin(range.from, moreNoSkipRange.from),
-		qMax(range.till, moreNoSkipRange.till)
+		std::min(range.from, moreNoSkipRange.from),
+		std::max(range.till, moreNoSkipRange.till)
 	};
 }
 
@@ -157,26 +157,6 @@ void MessagesList::removeOne(MessagePosition messageId) {
 	}
 }
 
-void MessagesList::removeAll(ChannelId channelId) {
-	auto removed = 0;
-	for (auto i = begin(_slices); i != end(_slices); ++i) {
-		_slices.modify(i, [&](Slice &slice) {
-			auto &messages = slice.messages;
-			for (auto j = begin(messages); j != end(messages);) {
-				if (j->fullId.channel == channelId) {
-					j = messages.erase(j);
-					++removed;
-				} else {
-					++j;
-				}
-			}
-		});
-	}
-	if (removed && _count) {
-		*_count -= removed;
-	}
-}
-
 void MessagesList::removeLessThan(MessagePosition messageId) {
 	auto removed = 0;
 	for (auto i = begin(_slices); i != end(_slices);) {
@@ -284,8 +264,8 @@ MessagesResult MessagesList::queryFromSlice(
 	auto position = ranges::lower_bound(slice.messages, query.aroundId);
 	auto haveBefore = int(position - begin(slice.messages));
 	auto haveEqualOrAfter = int(end(slice.messages) - position);
-	auto before = qMin(haveBefore, query.limitBefore);
-	auto equalOrAfter = qMin(haveEqualOrAfter, query.limitAfter + 1);
+	auto before = std::min(haveBefore, query.limitBefore);
+	auto equalOrAfter = std::min(haveEqualOrAfter, query.limitAfter + 1);
 	auto ids = std::vector<MessagePosition>(position - before, position + equalOrAfter);
 	result.messageIds.merge(ids.begin(), ids.end());
 	if (slice.range.from == MinMessagePosition) {
@@ -387,22 +367,6 @@ bool MessagesSliceBuilder::removeAll() {
 	_fullCount = 0;
 	_skippedBefore = 0;
 	_skippedAfter = 0;
-	return true;
-}
-
-bool MessagesSliceBuilder::removeFromChannel(ChannelId channelId) {
-	for (auto i = _ids.begin(); i != _ids.end();) {
-		if ((*i).fullId.channel == channelId) {
-			i = _ids.erase(i);
-			if (_fullCount) {
-				--*_fullCount;
-			}
-		} else {
-			++i;
-		}
-	}
-	_skippedBefore = _skippedAfter = std::nullopt;
-	checkInsufficient();
 	return true;
 }
 

@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings.h"
 
 #include "kotato/kotato_version.h"
+#include "core/version.h"
 #include "ui/emoji_config.h"
 
 Qt::LayoutDirection gLangDir = Qt::LeftToRight;
@@ -19,10 +20,9 @@ QByteArray gAlphaPrivateKey;
 
 bool gManyInstance = false;
 QString gKeyFile;
-QString gWorkingDir, gExeDir, gExeName;
+QString gWorkingDir;
 
-QStringList gSendPaths;
-QString gStartUrl;
+QList<QUrl> gStartUrls;
 
 QString gDialogLastPath, gDialogHelperPath; // optimize QFileDialog
 
@@ -30,8 +30,6 @@ bool gStartMinimized = false;
 bool gStartInTray = false;
 bool gAutoStart = false;
 bool gSendToMenu = false;
-bool gUseExternalVideoPlayer = false;
-bool gUseFreeType = false;
 bool gAutoUpdate = true;
 LaunchMode gLaunchMode = LaunchModeNormal;
 bool gSeenTrayTooltip = false;
@@ -41,6 +39,7 @@ int32 gLastUpdateCheck = 0;
 bool gNoStartUpdate = false;
 bool gStartToSettings = false;
 bool gDebugMode = false;
+bool gTestAgent = false;
 
 uint32 gConnectionsInSession = 1;
 
@@ -48,14 +47,10 @@ QByteArray gLocalSalt;
 int gScreenScale = style::kScaleAuto;
 int gConfigScale = style::kScaleAuto;
 
-QString gTimeFormat = qsl("hh:mm");
-
 RecentStickerPreload gRecentStickersPreload;
 RecentStickerPack gRecentStickers;
 
 RecentHashtagPack gRecentWriteHashtags, gRecentSearchHashtags;
-
-RecentInlineBots gRecentInlineBots;
 
 bool gPasswordRecovered = false;
 int32 gPasscodeBadTries = 0;

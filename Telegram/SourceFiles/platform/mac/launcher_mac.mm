@@ -7,8 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "platform/mac/launcher_mac.h"
 
+#include "kotato/kotato_settings.h"
 #include "core/crash_reports.h"
 #include "core/update_checker.h"
+#include "base/base_file_utilities.h"
 #include "base/platform/base_platform_file_utilities.h"
 #include "base/platform/mac/base_utilities_mac.h"
 
@@ -23,8 +25,7 @@ Launcher::Launcher(int argc, char *argv[])
 }
 
 void Launcher::initHook() {
-	// macOS Retina display support is working fine, others are not.
-	QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling, false);
+	base::RegisterBundledResources(u"Telegram.rcc"_q);
 }
 
 bool Launcher::launchUpdater(UpdaterLaunch action) {
@@ -60,20 +61,19 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 		if (cLaunchMode() == LaunchModeAutoStart) [args addObject:@"-autostart"];
 		if (Logs::DebugEnabled()) [args addObject:@"-debug"];
 		if (cStartInTray()) [args addObject:@"-startintray"];
-		if (cUseFreeType()) [args addObject:@"-freetype"];
-		if (cDataFile() != qsl("data")) {
+		if (cDataFile() != u"data"_q) {
 			[args addObject:@"-key"];
 			[args addObject:Q2NSString(cDataFile())];
 		}
 		if (customWorkingDir()) {
 			[args addObject:@"-workdir_custom"];
 		}
-		if (!cUseEnvApi()) [args addObject:@"-no-env-api"];
-		if (cApiFromStartParams()) {
+		if (!::Kotato::JsonSettings::GetBool("api_use_env")) [args addObject:@"-no-env-api"];
+		if (::Kotato::JsonSettings::GetBool("api_start_params")) {
 			[args addObject:@"-api-id"];
-			[args addObject:Q2NSString(QString::number(cApiId()))];
+			[args addObject:Q2NSString(QString::number(::Kotato::JsonSettings::GetInt("api_id")))];
 			[args addObject:@"-api-hash"];
-			[args addObject:Q2NSString(cApiHash())];
+			[args addObject:Q2NSString(::Kotato::JsonSettings::GetString("api_hash"))];
 		}
 
 		DEBUG_LOG(("Application Info: executing %1 %2").arg(NS2QString(path)).arg(NS2QString([args componentsJoinedByString:@" "])));

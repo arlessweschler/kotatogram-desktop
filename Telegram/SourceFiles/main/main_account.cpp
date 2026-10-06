@@ -7,9 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_account.h"
 
+#include "kotato/kotato_settings.h"
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
-#include "core/shortcuts.h"
 #include "storage/storage_account.h"
 #include "storage/storage_domain.h" // Storage::StartResult.
 #include "storage/serialize_common.h"
@@ -21,16 +21,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "media/audio/media_audio.h"
 #include "mtproto/mtproto_config.h"
-#include "mtproto/mtproto_dc_options.h"
-#include "mtproto/mtp_instance.h"
-#include "ui/image/image.h"
 #include "mainwidget.h"
 #include "api/api_updates.h"
+#include "ui/ui_utility.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "main/main_domain.h"
 #include "main/main_session_settings.h"
-#include "kotato/json_settings.h"
 
 namespace Main {
 namespace {
@@ -58,6 +55,7 @@ Account::Account(not_null<Domain*> domain, const QString &dataName, int index)
 Account::~Account() {
 	if (const auto session = maybeSession()) {
 		session->saveSettingsNowIfNeeded();
+		_local->writeSearchSuggestionsIfNeeded();
 	}
 	destroySession(DestroyReason::Quitting);
 }
@@ -79,11 +77,12 @@ std::unique_ptr<MTP::Config> Account::prepareToStart(
 }
 
 void Account::start(std::unique_ptr<MTP::Config> config) {
+	_appConfig = std::make_unique<AppConfig>(this);
 	startMtp(config
 		? std::move(config)
 		: std::make_unique<MTP::Config>(
 			Core::App().fallbackProductionConfig()));
-	_appConfig = std::make_unique<AppConfig>(this);
+	_appConfig->start();
 	watchProxyChanges();
 	watchSessionChanges();
 }
@@ -97,9 +96,10 @@ void Account::watchProxyChanges() {
 	using ProxyChange = Core::Application::ProxyChange;
 
 	Core::App().proxyChanges(
-	) | rpl::start_with_next([=](const ProxyChange &change) {
+	) | rpl::on_next([=](const ProxyChange &change) {
 		const auto key = [&](const MTP::ProxyData &proxy) {
-			return (proxy.type == MTP::ProxyData::Type::Mtproto)
+			return (proxy.type == MTP::ProxyData::Type::Mtproto
+				|| proxy.type == MTP::ProxyData::Type::Web)
 				? std::make_pair(proxy.host, proxy.port)
 				: std::make_pair(QString(), uint32(0));
 		};
@@ -117,7 +117,7 @@ void Account::watchProxyChanges() {
 
 void Account::watchSessionChanges() {
 	sessionChanges(
-	) | rpl::start_with_next([=](Session *session) {
+	) | rpl::on_next([=](Session *session) {
 		if (!session && _mtp) {
 			_mtp->setUserPhone(QString());
 		}
@@ -169,7 +169,16 @@ void Account::createSession(
 			MTPint(), // bot_info_version
 			MTPVector<MTPRestrictionReason>(),
 			MTPstring(), // bot_inline_placeholder
-			MTPstring()), // lang_code
+			MTPstring(), // lang_code
+			MTPEmojiStatus(),
+			MTPVector<MTPUsername>(),
+			MTPRecentStory(),
+			MTPPeerColor(), // color
+			MTPPeerColor(), // profile_color
+			MTPint(), // bot_active_users
+			MTPlong(), // bot_verification_icon
+			MTPlong(), // send_paid_messages_stars
+			MTPlong()), // linked_community_id
 		serialized,
 		streamVersion,
 		std::move(settings));
@@ -192,20 +201,11 @@ void Account::createSession(
 
 	Ensures(_session != nullptr);
 
-	auto defaultFilterUserId = QString::number(session().userId().bare);
-
-	if (_mtp->isTestMode()) {
-		defaultFilterUserId.prepend("test_");
-	}
-
-	if (HasDefaultFilterId("0")) {
-		const auto newDefaultFilterId = DefaultFilterId("0");
-		ClearDefaultFilterId("0");
-		setDefaultFilterId(newDefaultFilterId);
-		Kotato::JsonSettings::Write();
-	} else {
-		_defaultFilterId = DefaultFilterId(defaultFilterUserId);
-	}
+	_defaultFilterId = ::Kotato::JsonSettings::GetInt(
+		"folders/default",
+		session().userId().bare,
+		_mtp->isTestMode());
+	_recent.clear();
 }
 
 void Account::destroySession(DestroyReason reason) {
@@ -216,12 +216,21 @@ void Account::destroySession(DestroyReason reason) {
 		return;
 	}
 
+	// Assigning _sessionValue fires sessionChanges() synchronously, and a
+	// listener may enter a nested event dispatch that drains crl::on_main.
+	// Nothing may delete this Account while we're still on the stack.
+	_destroyingSession = true;
 	_sessionValue = nullptr;
 
 	if (reason == DestroyReason::LoggedOut) {
 		_session->finishLogout();
 	}
 	_session = nullptr;
+	_destroyingSession = false;
+}
+
+bool Account::destroyingSession() const {
+	return _destroyingSession;
 }
 
 bool Account::sessionExists() const {
@@ -436,7 +445,7 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	_mtp->writeKeysRequests(
 	) | rpl::filter([=] {
 		return !*writingKeys;
-	}) | rpl::start_with_next([=] {
+	}) | rpl::on_next([=] {
 		*writingKeys = true;
 		Ui::PostponeCall(_mtp.get(), [=] {
 			local().writeMtpData();
@@ -450,7 +459,7 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 		_mtp->dcOptions().changed() | rpl::to_empty
 	) | rpl::filter([=] {
 		return !*writingConfig;
-	}) | rpl::start_with_next([=] {
+	}) | rpl::on_next([=] {
 		*writingConfig = true;
 		Ui::PostponeCall(_mtp.get(), [=] {
 			local().writeMtpConfig();
@@ -471,6 +480,7 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	_mtp->setStateChangedHandler([=](MTP::ShiftedDcId dc, int32 state) {
 		if (dc == _mtp->mainDcId()) {
 			Core::App().settings().proxy().connectionTypeChangesNotify();
+			Core::App().checkProxyRotation(this, state);
 		}
 	});
 	_mtp->setSessionResetHandler([=](MTP::ShiftedDcId shiftedDcId) {
@@ -543,8 +553,8 @@ bool Account::loggingOut() const {
 
 void Account::forcedLogOut() {
 	if (sessionExists()) {
-		resetAuthorizationKeys();
 		loggedOut();
+		resetAuthorizationKeys();
 	}
 }
 
@@ -578,11 +588,11 @@ void Account::destroyMtpKeys(MTP::AuthKeysList &&keys) {
 		MTP::Instance::Mode::KeysDestroyer,
 		std::move(destroyFields));
 	_mtpForKeysDestroy->writeKeysRequests(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		local().writeMtpData();
 	}, _mtpForKeysDestroy->lifetime());
 	_mtpForKeysDestroy->allKeysDestroyed(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		LOG(("MTP Info: all keys scheduled for destroy are destroyed."));
 		crl::on_main(this, [=] {
 			_mtpForKeysDestroy = nullptr;
@@ -615,40 +625,39 @@ void Account::destroyStaleAuthorizationKeys() {
 	}
 }
 
-void Account::setDefaultFilterId(uint64 id) {
+void Account::setDefaultFilterId(FilterId id) {
 	Expects(_mtp != nullptr);
 	Expects(_session != nullptr);
 
+	if (_defaultFilterId == id) {
+		return;
+	}
 	_defaultFilterId = id;
-	auto defaultFilterUserId = QString::number(session().userId().bare);
 
-	if (_mtp->isTestMode()) {
-		defaultFilterUserId.prepend("test_");
-	}
-
-	if (id == 0) {
-		ClearDefaultFilterId(defaultFilterUserId);
-	} else {
-		SetDefaultFilterId(defaultFilterUserId, id);
-	}
-}
-
-bool Account::isCurrent(uint64 id, bool testMode) {
-	Expects(_mtp != nullptr);
-	Expects(_session != nullptr);
-
-	return id == session().userId().bare
-		&& _mtp->isTestMode() == testMode;
+	::Kotato::JsonSettings::Set(
+		"folders/default",
+		_defaultFilterId,
+		session().userId().bare,
+		_mtp->isTestMode());
+	::Kotato::JsonSettings::Write();
 }
 
 void Account::addToRecent(PeerId id) {
-	if (!_recent.contains(id.value)) {
-		_recent << id.value;
-	}
+	_recent.emplace(id);
 }
 
-bool Account::isRecent(PeerId id) {
-	return _recent.contains(id.value);
+bool Account::isRecent(PeerId id) const {
+	return _recent.contains(id);
+}
+
+void Account::setHandleLoginCode(Fn<void(QString)> callback) {
+	_handleLoginCode = std::move(callback);
+}
+
+void Account::handleLoginCode(const QString &code) const {
+	if (_handleLoginCode) {
+		_handleLoginCode(code);
+	}
 }
 
 void Account::resetAuthorizationKeys() {

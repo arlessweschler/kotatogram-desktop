@@ -7,12 +7,17 @@ https://github.com/kotatogram/kotatogram-desktop/blob/dev/LEGAL
 */
 #pragma once
 
-#include "boxes/abstract_box.h"
+#include "ui/layers/box_content.h"
 
 namespace Ui {
+class VerticalLayout;
 class Checkbox;
 class InputField;
+class LabelSimple;
+class MediaSlider;
 } // namespace Ui
+
+class RpFontListView;
 
 class FontsBox : public Ui::BoxContent {
 public:
@@ -22,19 +27,18 @@ protected:
 	void prepare() override;
 	void setInnerFocus() override;
 
-	void paintEvent(QPaintEvent *e) override;
-	void resizeEvent(QResizeEvent *e) override;
 private:
 	void save();
 	void resetToDefault();
 
-	object_ptr<Ui::Checkbox> _useSystemFont = { nullptr };
-	object_ptr<Ui::Checkbox> _useOriginalMetrics = { nullptr };
-	object_ptr<Ui::InputField> _mainFontName = { nullptr };
-	object_ptr<Ui::InputField> _semiboldFontName = { nullptr };
-	object_ptr<Ui::Checkbox> _semiboldIsBold = { nullptr };
-	object_ptr<Ui::InputField> _monospacedFontName = { nullptr };
-	Ui::Text::String _about;
+	object_ptr<Ui::VerticalLayout> _owned;
+	not_null<Ui::VerticalLayout*> _content;
 
-	int _aboutHeight = 0;
+	QPointer<Ui::Checkbox> _semiboldIsBold;
+	QPointer<Ui::InputField> _monospacedFontName;
+	QPointer<RpFontListView> _monospacedFontList;
+	QPointer<Ui::LabelSimple> _fontSizeLabel;
+	QPointer<Ui::MediaSlider> _fontSizeSlider;
+
+	int _fontSize;
 };

@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_audio_track.h"
 #include "media/streaming/media_streaming_video_track.h"
 #include "media/audio/media_audio.h" // for SupportsSpeedControl()
+#include "media/media_common.h"
 #include "data/data_document.h" // for DocumentData::duration()
 
 namespace Media {
@@ -61,8 +62,11 @@ void SaveValidVideoInformation(
 
 	SaveValidStateInformation(to.state, std::move(from.state));
 	to.size = from.size;
+	to.realSize = from.realSize;
 	to.cover = std::move(from.cover);
 	to.rotation = from.rotation;
+	to.fps = from.fps;
+	to.alpha = from.alpha;
 }
 
 void SaveValidStartInformation(Information &to, Information &&from) {
@@ -231,6 +235,10 @@ void Player::videoPlayedTill(crl::time position) {
 	Expects(_video != nullptr);
 
 	trackPlayedTill(*_video, _information.video.state, position);
+}
+
+Mode Player::fileOpenMode() {
+	return _options.mode;
 }
 
 bool Player::fileReady(int headerSize, Stream &&video, Stream &&audio) {
@@ -523,7 +531,7 @@ void Player::fail(Error error) {
 }
 
 void Player::play(const PlaybackOptions &options) {
-	Expects(options.speed >= 0.5 && options.speed <= 2.);
+	Expects(options.speed >= kSpeedMin && options.speed <= kSpeedMax);
 
 	// Looping video with audio is not supported for now.
 	Expects(!options.loop || (options.mode != Mode::Both));
@@ -538,8 +546,16 @@ void Player::play(const PlaybackOptions &options) {
 	if (!Media::Audio::SupportsSpeedControl()) {
 		_options.speed = 1.;
 	}
+	if (!_options.seekable) {
+		_options.position = 0;
+	}
 	_stage = Stage::Initializing;
-	_file->start(delegate(), _options.position);
+	_file->start(delegate(), {
+		.position = _options.position,
+		.durationOverride = options.durationOverride,
+		.seekable = _options.seekable,
+		.hwAllow = _options.hwAllowed,
+	});
 }
 
 void Player::savePreviousReceivedTill(
@@ -701,12 +717,16 @@ void Player::start() {
 	_stage = Stage::Started;
 	const auto guard = base::make_weak(&_sessionGuard);
 
+	_file->speedEstimate() | rpl::on_next([=](SpeedEstimate value) {
+		_updates.fire({ value });
+	}, _sessionLifetime);
+
 	rpl::merge(
 		_audio ? _audio->waitingForData() : nullptr,
 		_video ? _video->waitingForData() : nullptr
 	) | rpl::filter([=] {
 		return !bothReceivedEnough(kBufferFor);
-	}) | rpl::start_with_next([=] {
+	}) | rpl::on_next([=] {
 		_pausedByWaitingForData = true;
 		updatePausedState();
 		_updates.fire({ WaitingForData{ true } });
@@ -714,7 +734,7 @@ void Player::start() {
 
 	if (guard && _audio && !_audioFinished) {
 		_audio->playPosition(
-		) | rpl::start_with_next_done([=](crl::time position) {
+		) | rpl::on_next_done([=](crl::time position) {
 			audioPlayedTill(position);
 		}, [=] {
 			Expects(_stage == Stage::Started);
@@ -728,7 +748,7 @@ void Player::start() {
 
 	if (guard && _video) {
 		_video->checkNextFrame(
-		) | rpl::start_with_next_done([=] {
+		) | rpl::on_next_done([=] {
 			checkVideoStep();
 		}, [=] {
 			Assert(_stage == Stage::Started);
@@ -742,7 +762,7 @@ void Player::start() {
 		crl::on_main_update_requests(
 		) | rpl::filter([=] {
 			return !_videoFinished;
-		}) | rpl::start_with_next([=] {
+		}) | rpl::on_next([=] {
 			checkVideoStep();
 		}, _sessionLifetime);
 	}
@@ -823,12 +843,12 @@ float64 Player::speed() const {
 }
 
 void Player::setSpeed(float64 speed) {
-	Expects(speed >= 0.5 && speed <= 2.);
+	Expects(speed >= kSpeedMin && speed <= kSpeedMax);
 
 	if (!Media::Audio::SupportsSpeedControl()) {
 		speed = 1.;
 	}
-	if (_options.speed != speed) {
+	if (!EqualSpeeds(_options.speed, speed)) {
 		_options.speed = speed;
 		if (active()) {
 			if (_audio) {
@@ -867,6 +887,10 @@ rpl::producer<bool> Player::fullInCache() const {
 	return _fullInCache.events();
 }
 
+int64 Player::fileSize() const {
+	return _file->size();
+}
+
 QSize Player::videoSize() const {
 	return _information.video.size;
 }
@@ -877,6 +901,14 @@ QImage Player::frame(
 	Expects(_video != nullptr);
 
 	return _video->frame(request, instance);
+}
+
+FrameWithInfo Player::frameWithInfo(
+		const FrameRequest &request,
+		const Instance *instance) const {
+	Expects(_video != nullptr);
+
+	return _video->frameWithInfo(request, instance);
 }
 
 FrameWithInfo Player::frameWithInfo(const Instance *instance) const {
@@ -932,11 +964,13 @@ Media::Player::TrackState Player::prepareLegacyState() const {
 
 	if (result.length == kTimeUnknown) {
 		const auto document = _options.audioId.audio();
-		const auto duration = document ? document->getDuration() : 0;
+		const auto duration = document ? document->duration() : 0;
 		if (duration > 0) {
-			result.length = duration * crl::time(1000);
+			result.length = duration;
 		} else {
-			result.length = std::max(crl::time(result.position), crl::time(0));
+			result.length = std::max(
+				crl::time(result.position),
+				crl::time(0));
 		}
 	}
 	return result;

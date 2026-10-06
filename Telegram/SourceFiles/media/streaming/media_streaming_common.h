@@ -8,9 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "data/data_audio_msg_id.h"
+#include "ui/image/image_prepare.h"
 #include "ui/rect_part.h"
-
-enum class ImageRoundRadius;
 
 namespace Media {
 
@@ -23,6 +22,8 @@ bool SupportsSpeedControl();
 } // namespace Audio
 
 namespace Streaming {
+
+inline constexpr auto kMaxFrameArea = 3840 * 2160;
 
 inline bool SupportsSpeedControl() {
 	return Media::Audio::SupportsSpeedControl();
@@ -41,10 +42,13 @@ enum class Mode {
 struct PlaybackOptions {
 	Mode mode = Mode::Both;
 	crl::time position = 0;
+	crl::time durationOverride = 0;
 	float64 speed = 1.; // Valid values between 0.5 and 2.
 	AudioMsgId audioId;
 	bool syncVideoByAudio = true;
 	bool waitForMarkAsShown = false;
+	bool hwAllowed = false;
+	bool seekable = true;
 	bool loop = false;
 };
 
@@ -57,8 +61,11 @@ struct TrackState {
 struct VideoInformation {
 	TrackState state;
 	QSize size;
+	QSize realSize;
 	QImage cover;
 	int rotation = 0;
+	float64 fps = 0.;
+	bool alpha = false;
 };
 
 struct AudioInformation {
@@ -90,6 +97,11 @@ struct WaitingForData {
 	bool waiting = false;
 };
 
+struct SpeedEstimate {
+	int bytesPerSecond = 0;
+	bool unreliable = false;
+};
+
 struct MutedByOther {
 };
 
@@ -104,6 +116,7 @@ struct Update {
 		PreloadedAudio,
 		UpdateAudio,
 		WaitingForData,
+		SpeedEstimate,
 		MutedByOther,
 		Finished> data;
 };
@@ -118,9 +131,12 @@ enum class Error {
 struct FrameRequest {
 	QSize resize;
 	QSize outer;
-	ImageRoundRadius radius = ImageRoundRadius();
-	RectParts corners = RectPart::AllCorners;
+	Images::CornersMaskRef rounding;
+	QImage mask;
+	QColor colored = QColor(0, 0, 0, 0);
+	bool blurredBackground = false;
 	bool requireARGB32 = true;
+	bool keepAlpha = false;
 	bool strict = true;
 
 	static FrameRequest NonStrict() {
@@ -130,23 +146,29 @@ struct FrameRequest {
 	}
 
 	[[nodiscard]] bool empty() const {
-		return resize.isEmpty();
+		return blurredBackground ? outer.isEmpty() : resize.isEmpty();
 	}
 
 	[[nodiscard]] bool operator==(const FrameRequest &other) const {
 		return (resize == other.resize)
 			&& (outer == other.outer)
-			&& (radius == other.radius)
-			&& (corners == other.corners)
-			&& (requireARGB32 == other.requireARGB32);
+			&& (rounding == other.rounding)
+			&& (mask.constBits() == other.mask.constBits())
+			&& (colored == other.colored)
+			&& (keepAlpha == other.keepAlpha)
+			&& (requireARGB32 == other.requireARGB32)
+			&& (blurredBackground == other.blurredBackground);
 	}
 	[[nodiscard]] bool operator!=(const FrameRequest &other) const {
 		return !(*this == other);
 	}
 
 	[[nodiscard]] bool goodFor(const FrameRequest &other) const {
-		return (requireARGB32 == other.requireARGB32)
-			&& ((*this == other) || (strict && !other.strict));
+		return (blurredBackground == other.blurredBackground)
+			&& (requireARGB32 == other.requireARGB32)
+			&& (keepAlpha == other.keepAlpha)
+			&& (colored == other.colored)
+			&& ((strict && !other.strict) || (*this == other));
 	}
 };
 
@@ -154,6 +176,8 @@ enum class FrameFormat {
 	None,
 	ARGB32,
 	YUV420,
+	NV12,
+	NativeTexture,
 };
 
 struct FrameChannel {
@@ -161,7 +185,7 @@ struct FrameChannel {
 	int stride = 0;
 };
 
-struct FrameYUV420 {
+struct FrameYUV {
 	QSize size;
 	QSize chromaSize;
 	FrameChannel y;
@@ -169,11 +193,19 @@ struct FrameYUV420 {
 	FrameChannel v;
 };
 
+struct NativeFrame {
+	void *pixelBuffer = nullptr;
+	QSize size;
+	QSize chromaSize;
+};
+
 struct FrameWithInfo {
-	QImage original;
-	FrameYUV420 *yuv420 = nullptr;
+	QImage image;
+	FrameYUV *yuv = nullptr;
+	NativeFrame *nativeFrame = nullptr;
 	FrameFormat format = FrameFormat::None;
 	int index = -1;
+	bool alpha = false;
 };
 
 } // namespace Streaming

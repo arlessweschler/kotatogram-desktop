@@ -27,6 +27,7 @@ enum class SharedMediaType : signed char {
 	GIF,
 	RoundFile,
 	Pinned,
+	Poll,
 
 	kCount,
 };
@@ -39,11 +40,22 @@ constexpr bool IsValidSharedMediaType(SharedMediaType type) {
 using SharedMediaTypesMask = base::enum_mask<SharedMediaType>;
 
 struct SharedMediaAddNew {
-	SharedMediaAddNew(PeerId peerId, SharedMediaTypesMask types, MsgId messageId)
-		: peerId(peerId), messageId(messageId), types(types) {
+	SharedMediaAddNew(
+		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
+		SharedMediaTypesMask types,
+		MsgId messageId)
+	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
+	, messageId(messageId)
+	, types(types) {
 	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	MsgId messageId = 0;
 	SharedMediaTypesMask types;
 
@@ -52,16 +64,22 @@ struct SharedMediaAddNew {
 struct SharedMediaAddExisting {
 	SharedMediaAddExisting(
 		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
 		SharedMediaTypesMask types,
 		MsgId messageId,
 		MsgRange noSkipRange)
-		: peerId(peerId)
-		, messageId(messageId)
-		, noSkipRange(noSkipRange)
-		, types(types) {
+	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
+	, messageId(messageId)
+	, noSkipRange(noSkipRange)
+	, types(types) {
 	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	MsgId messageId = 0;
 	MsgRange noSkipRange;
 	SharedMediaTypesMask types;
@@ -71,18 +89,24 @@ struct SharedMediaAddExisting {
 struct SharedMediaAddSlice {
 	SharedMediaAddSlice(
 		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
 		SharedMediaType type,
 		std::vector<MsgId> &&messageIds,
 		MsgRange noSkipRange,
 		std::optional<int> count = std::nullopt)
-		: peerId(peerId)
-		, messageIds(std::move(messageIds))
-		, noSkipRange(noSkipRange)
-		, type(type)
-		, count(count) {
+	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
+	, messageIds(std::move(messageIds))
+	, noSkipRange(noSkipRange)
+	, type(type)
+	, count(count) {
 	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	std::vector<MsgId> messageIds;
 	MsgRange noSkipRange;
 	SharedMediaType type = SharedMediaType::kCount;
@@ -93,14 +117,20 @@ struct SharedMediaAddSlice {
 struct SharedMediaRemoveOne {
 	SharedMediaRemoveOne(
 		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
 		SharedMediaTypesMask types,
 		MsgId messageId)
 	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
 	, messageId(messageId)
 	, types(types) {
 	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	MsgId messageId = 0;
 	SharedMediaTypesMask types;
 
@@ -113,8 +143,26 @@ struct SharedMediaRemoveAll {
 	: peerId(peerId)
 	, types(types) {
 	}
+	SharedMediaRemoveAll(
+		PeerId peerId,
+		MsgId topicRootId,
+		SharedMediaTypesMask types = SharedMediaTypesMask::All())
+	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, types(types) {
+	}
+	SharedMediaRemoveAll(
+		PeerId peerId,
+		PeerId monoforumPeerId,
+		SharedMediaTypesMask types = SharedMediaTypesMask::All())
+	: peerId(peerId)
+	, monoforumPeerId(monoforumPeerId)
+	, types(types) {
+	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	SharedMediaTypesMask types;
 
 };
@@ -130,23 +178,24 @@ struct SharedMediaInvalidateBottom {
 struct SharedMediaKey {
 	SharedMediaKey(
 		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
 		SharedMediaType type,
 		MsgId messageId)
 	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
 	, type(type)
 	, messageId(messageId) {
 	}
 
-	bool operator==(const SharedMediaKey &other) const {
-		return (peerId == other.peerId)
-			&& (type == other.type)
-			&& (messageId == other.messageId);
-	}
-	bool operator!=(const SharedMediaKey &other) const {
-		return !(*this == other);
-	}
+	friend inline constexpr auto operator<=>(
+		const SharedMediaKey &,
+		const SharedMediaKey &) = default;
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	SharedMediaType type = SharedMediaType::kCount;
 	MsgId messageId = 0;
 
@@ -173,16 +222,37 @@ using SharedMediaResult = SparseIdsListResult;
 struct SharedMediaSliceUpdate {
 	SharedMediaSliceUpdate(
 		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId,
 		SharedMediaType type,
 		const SparseIdsSliceUpdate &data)
 	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId)
 	, type(type)
 	, data(data) {
 	}
 
 	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 	SharedMediaType type = SharedMediaType::kCount;
 	SparseIdsSliceUpdate data;
+};
+
+struct SharedMediaUnloadThread {
+	SharedMediaUnloadThread(
+		PeerId peerId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId)
+	: peerId(peerId)
+	, topicRootId(topicRootId)
+	, monoforumPeerId(monoforumPeerId) {
+	}
+
+	PeerId peerId = 0;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId = 0;
 };
 
 class SharedMedia {
@@ -195,6 +265,7 @@ public:
 	void remove(SharedMediaRemoveOne &&query);
 	void remove(SharedMediaRemoveAll &&query);
 	void invalidate(SharedMediaInvalidateBottom &&query);
+	void unload(SharedMediaUnloadThread &&query);
 
 	rpl::producer<SharedMediaResult> query(SharedMediaQuery &&query) const;
 	SharedMediaResult snapshot(const SharedMediaQuery &query) const;
@@ -205,11 +276,18 @@ public:
 	rpl::producer<SharedMediaInvalidateBottom> bottomInvalidated() const;
 
 private:
+	struct Key {
+		PeerId peerId = 0;
+		MsgId topicRootId = 0;
+		PeerId monoforumPeerId = 0;
+
+		friend inline constexpr auto operator<=>(Key, Key) = default;
+	};
 	using Lists = std::array<SparseIdsList, kSharedMediaTypeCount>;
 
-	std::map<PeerId, Lists>::iterator enforceLists(PeerId peer);
+	std::map<Key, Lists>::iterator enforceLists(Key key);
 
-	std::map<PeerId, Lists> _lists;
+	std::map<Key, Lists> _lists;
 
 	rpl::event_stream<SharedMediaSliceUpdate> _sliceUpdated;
 	rpl::event_stream<SharedMediaRemoveOne> _oneRemoved;

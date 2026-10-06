@@ -33,6 +33,7 @@ RowsByLetter IndexedList::addToEnd(Key key) {
 		}
 		result.letters.emplace(ch, j->second.addToEnd(key));
 	}
+	++_dateVersion;
 	return result;
 }
 
@@ -54,20 +55,20 @@ Row *IndexedList::addByName(Key key) {
 
 void IndexedList::adjustByDate(const RowsByLetter &links) {
 	_list.adjustByDate(links.main);
-	for (const auto &[ch, row] : links.letters) {
-		if (auto it = _index.find(ch); it != _index.cend()) {
-			it->second.adjustByDate(row);
-		}
-	}
+	++_dateVersion;
+}
+
+bool IndexedList::updateHeights(float64 narrowRatio) {
+	return _list.updateHeights(narrowRatio);
+}
+
+bool IndexedList::updateHeight(Key key, float64 narrowRatio) {
+	return _list.updateHeight(key, narrowRatio);
 }
 
 void IndexedList::moveToTop(Key key) {
 	if (_list.moveToTop(key)) {
-		for (const auto &ch : key.entry()->chatListFirstLetters()) {
-			if (auto it = _index.find(ch); it != _index.cend()) {
-				it->second.moveToTop(key);
-			}
-		}
+		++_dateVersion;
 	}
 }
 
@@ -134,7 +135,7 @@ void IndexedList::adjustByName(
 	}
 	for (auto ch : toRemove) {
 		if (auto it = _index.find(ch); it != _index.cend()) {
-			it->second.del(key, mainRow);
+			it->second.remove(key, mainRow);
 		}
 	}
 	if (!toAdd.empty()) {
@@ -171,7 +172,7 @@ void IndexedList::adjustNames(
 			history->removeChatListEntryByLetter(filterId, ch);
 		}
 		if (auto it = _index.find(ch); it != _index.cend()) {
-			it->second.del(key, mainRow);
+			it->second.remove(key, mainRow);
 		}
 	}
 	for (auto ch : toAdd) {
@@ -184,20 +185,50 @@ void IndexedList::adjustNames(
 			history->addChatListEntryByLetter(filterId, ch, row);
 		}
 	}
+	++_dateVersion;
 }
 
-void IndexedList::del(Key key, Row *replacedBy) {
-	if (_list.del(key, replacedBy)) {
+void IndexedList::freeze() {
+	_list.freeze();
+	for (auto &[ch, list] : _index) {
+		list.freeze();
+	}
+}
+
+void IndexedList::unfreeze() {
+	_list.unfreeze();
+	for (auto &[ch, list] : _index) {
+		list.unfreeze();
+	}
+}
+
+void IndexedList::remove(Key key, Row *replacedBy) {
+	if (_list.remove(key, replacedBy)) {
 		for (const auto &ch : key.entry()->chatListFirstLetters()) {
-			if (auto it = _index.find(ch); it != _index.cend()) {
-				it->second.del(key, replacedBy);
+			if (const auto it = _index.find(ch); it != _index.cend()) {
+				it->second.remove(key, replacedBy);
 			}
 		}
 	}
 }
 
 void IndexedList::clear() {
+	_list.clear();
 	_index.clear();
+}
+
+const List *IndexedList::filtered(QChar ch) const {
+	const auto i = _index.find(ch);
+	if (i == _index.end()) {
+		return nullptr;
+	}
+	auto &list = i->second;
+	if (_sortMode == SortMode::Date
+		&& list.dateOrderVersion() != _dateVersion) {
+		list.sortByDate();
+		list.markDateOrderVersion(_dateVersion);
+	}
+	return &list;
 }
 
 std::vector<not_null<Row*>> IndexedList::filtered(

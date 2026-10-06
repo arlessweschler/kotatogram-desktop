@@ -14,8 +14,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "lang/lang_keys.h"
-#include "styles/style_boxes.h"
 #include "styles/style_export.h"
+#include "styles/style_widgets.h"
 
 namespace Export {
 namespace View {
@@ -52,9 +52,9 @@ private:
 	void hideCurrentInstance();
 	void setInstanceProgress(Instance &instance, float64 progress);
 	void toggleInstance(Instance &data, bool shown);
-	void instanceOpacityCallback(QPointer<Ui::FlatLabel> label);
-	void removeOldInstance(QPointer<Ui::FlatLabel> label);
-	void paintInstance(Painter &p, const Instance &data);
+	void instanceOpacityCallback(base::weak_qptr<Ui::FlatLabel> label);
+	void removeOldInstance(base::weak_qptr<Ui::FlatLabel> label);
+	void paintInstance(QPainter &p, const Instance &data);
 
 	void updateControlsGeometry(int newWidth);
 	void updateInstanceGeometry(const Instance &instance, int newWidth);
@@ -147,7 +147,7 @@ void ProgressWidget::Row::toggleInstance(Instance &instance, bool shown) {
 	if (instance.hiding != shown) {
 		return;
 	}
-	const auto label = Ui::MakeWeak(instance.label->entity());
+	const auto label = base::make_weak(instance.label->entity());
 	instance.opacity.start(
 		[=] { instanceOpacityCallback(label); },
 		shown ? 0. : 1.,
@@ -159,10 +159,10 @@ void ProgressWidget::Row::toggleInstance(Instance &instance, bool shown) {
 }
 
 void ProgressWidget::Row::instanceOpacityCallback(
-		QPointer<Ui::FlatLabel> label) {
+		base::weak_qptr<Ui::FlatLabel> label) {
 	update();
 	const auto i = ranges::find(_old, label, [](const Instance &instance) {
-		return Ui::MakeWeak(instance.label->entity());
+		return base::make_weak(instance.label->entity());
 	});
 	if (i != end(_old) && i->hiding && !i->opacity.animating()) {
 		crl::on_main(this, [=] {
@@ -171,9 +171,10 @@ void ProgressWidget::Row::instanceOpacityCallback(
 	}
 }
 
-void ProgressWidget::Row::removeOldInstance(QPointer<Ui::FlatLabel> label) {
+void ProgressWidget::Row::removeOldInstance(
+		base::weak_qptr<Ui::FlatLabel> label) {
 	const auto i = ranges::find(_old, label, [](const Instance &instance) {
-		return Ui::MakeWeak(instance.label->entity());
+		return base::make_weak(instance.label->entity());
 	});
 	if (i != end(_old)) {
 		_old.erase(i);
@@ -186,7 +187,7 @@ int ProgressWidget::Row::resizeGetHeight(int newWidth) {
 }
 
 void ProgressWidget::Row::paintEvent(QPaintEvent *e) {
-	Painter p(this);
+	auto p = QPainter(this);
 
 	const auto thickness = st::exportProgressWidth;
 	const auto top = height() - thickness;
@@ -198,7 +199,7 @@ void ProgressWidget::Row::paintEvent(QPaintEvent *e) {
 	paintInstance(p, _current);
 }
 
-void ProgressWidget::Row::paintInstance(Painter &p, const Instance &data) {
+void ProgressWidget::Row::paintInstance(QPainter &p, const Instance &data) {
 	const auto opacity = data.opacity.value(data.hiding ? 0. : 1.);
 
 	if (!opacity) {
@@ -208,7 +209,8 @@ void ProgressWidget::Row::paintInstance(Painter &p, const Instance &data) {
 
 	const auto thickness = st::exportProgressWidth;
 	const auto top = height() - thickness;
-	const auto till = qRound(data.progress.value(data.value) * width());
+	const auto progress = data.progress.value(data.value);
+	const auto till = int(base::SafeRound(progress * width()));
 	if (till > 0) {
 		p.fillRect(0, top, till, thickness, st::exportProgressFg);
 	}
@@ -244,7 +246,7 @@ ProgressWidget::ProgressWidget(
 , _body(this)
 , _fileShowSkipTimer([=] { _skipFile->show(anim::type::normal); }) {
 	widthValue(
-	) | rpl::start_with_next([=](int width) {
+	) | rpl::on_next([=](int width) {
 		_body->resizeToWidth(width);
 		_body->moveToLeft(0, 0);
 	}, _body->lifetime());
@@ -270,7 +272,7 @@ ProgressWidget::ProgressWidget(
 
 	std::move(
 		content
-	) | rpl::start_with_next([=](Content &&content) {
+	) | rpl::on_next([=](Content &&content) {
 		updateState(std::move(content));
 	}, lifetime());
 
@@ -289,7 +291,7 @@ rpl::producer<uint64> ProgressWidget::skipFileClicks() const {
 rpl::producer<> ProgressWidget::cancelClicks() const {
 	return _cancel
 		? (_cancel->clicks() | rpl::to_empty)
-		: (rpl::never<>() | rpl::type_erased());
+		: (rpl::never<>() | rpl::type_erased);
 }
 
 rpl::producer<> ProgressWidget::doneClicks() const {
@@ -300,7 +302,7 @@ void ProgressWidget::setupBottomButton(not_null<Ui::RoundButton*> button) {
 	button->show();
 
 	sizeValue(
-	) | rpl::start_with_next([=](QSize size) {
+	) | rpl::on_next([=](QSize size) {
 		button->move(
 			(size.width() - button->width()) / 2,
 			(size.height() - st::exportCancelBottom - button->height()));
@@ -362,9 +364,9 @@ void ProgressWidget::showDone() {
 		tr::lng_export_done(),
 		st::exportDoneButton);
 	const auto desired = std::min(
-		st::exportDoneButton.font->width(tr::lng_export_done(tr::now).toUpper())
+		st::exportDoneButton.style.font->width(tr::lng_export_done(tr::now))
 		+ st::exportDoneButton.height
-		- st::exportDoneButton.font->height,
+		- st::exportDoneButton.style.font->height,
 		st::exportPanelSize.width() - 2 * st::exportCancelBottom);
 	if (_done->width() < desired) {
 		_done->setFullWidth(desired);

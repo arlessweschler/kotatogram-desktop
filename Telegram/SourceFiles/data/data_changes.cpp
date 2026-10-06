@@ -56,7 +56,7 @@ rpl::producer<UpdateType> Changes::Manager<DataType, UpdateType>::updates(
 		Flags flags) const {
 	return _stream.events(
 	) | rpl::filter([=](const UpdateType &update) {
-		const auto [updateData, updateFlags] = update;
+		const auto &[updateData, updateFlags] = update;
 		return (updateData == data) && (updateFlags & flags);
 	});
 }
@@ -74,6 +74,11 @@ rpl::producer<UpdateType> Changes::Manager<DataType, UpdateType>::flagsValue(
 	return rpl::single(
 		UpdateType{ data, flags }
 	) | rpl::then(updates(data, flags));
+}
+
+template <typename DataType, typename UpdateType>
+void Changes::Manager<DataType, UpdateType>::drop(not_null<DataType*> data) {
+	_updates.remove(data);
 }
 
 template <typename DataType, typename UpdateType>
@@ -163,6 +168,78 @@ rpl::producer<HistoryUpdate> Changes::realtimeHistoryUpdates(
 	return _historyChanges.realtimeUpdates(flag);
 }
 
+void Changes::topicUpdated(
+		not_null<ForumTopic*> topic,
+		TopicUpdate::Flags flags) {
+	const auto drop = (flags & TopicUpdate::Flag::Destroyed);
+	_topicChanges.updated(topic, flags, drop);
+	if (!drop) {
+		scheduleNotifications();
+	}
+}
+
+rpl::producer<TopicUpdate> Changes::topicUpdates(
+		TopicUpdate::Flags flags) const {
+	return _topicChanges.updates(flags);
+}
+
+rpl::producer<TopicUpdate> Changes::topicUpdates(
+		not_null<ForumTopic*> topic,
+		TopicUpdate::Flags flags) const {
+	return _topicChanges.updates(topic, flags);
+}
+
+rpl::producer<TopicUpdate> Changes::topicFlagsValue(
+		not_null<ForumTopic*> topic,
+		TopicUpdate::Flags flags) const {
+	return _topicChanges.flagsValue(topic, flags);
+}
+
+rpl::producer<TopicUpdate> Changes::realtimeTopicUpdates(
+		TopicUpdate::Flag flag) const {
+	return _topicChanges.realtimeUpdates(flag);
+}
+
+void Changes::topicRemoved(not_null<ForumTopic*> topic) {
+	_topicChanges.drop(topic);
+}
+
+void Changes::sublistUpdated(
+		not_null<SavedSublist*> sublist,
+		SublistUpdate::Flags flags) {
+	const auto drop = (flags & SublistUpdate::Flag::Destroyed);
+	_sublistChanges.updated(sublist, flags, drop);
+	if (!drop) {
+		scheduleNotifications();
+	}
+}
+
+rpl::producer<SublistUpdate> Changes::sublistUpdates(
+		SublistUpdate::Flags flags) const {
+	return _sublistChanges.updates(flags);
+}
+
+rpl::producer<SublistUpdate> Changes::sublistUpdates(
+		not_null<SavedSublist*> sublist,
+		SublistUpdate::Flags flags) const {
+	return _sublistChanges.updates(sublist, flags);
+}
+
+rpl::producer<SublistUpdate> Changes::sublistFlagsValue(
+		not_null<SavedSublist*> sublist,
+		SublistUpdate::Flags flags) const {
+	return _sublistChanges.flagsValue(sublist, flags);
+}
+
+rpl::producer<SublistUpdate> Changes::realtimeSublistUpdates(
+		SublistUpdate::Flag flag) const {
+	return _sublistChanges.realtimeUpdates(flag);
+}
+
+void Changes::sublistRemoved(not_null<SavedSublist*> sublist) {
+	_sublistChanges.drop(sublist);
+}
+
 void Changes::messageUpdated(
 		not_null<HistoryItem*> item,
 		MessageUpdate::Flags flags) {
@@ -198,8 +275,11 @@ rpl::producer<MessageUpdate> Changes::realtimeMessageUpdates(
 void Changes::entryUpdated(
 		not_null<Dialogs::Entry*> entry,
 		EntryUpdate::Flags flags) {
-	_entryChanges.updated(entry, flags);
-	scheduleNotifications();
+	const auto drop = (flags & EntryUpdate::Flag::Destroyed);
+	_entryChanges.updated(entry, flags, drop);
+	if (!drop) {
+		scheduleNotifications();
+	}
 }
 
 rpl::producer<EntryUpdate> Changes::entryUpdates(
@@ -224,6 +304,70 @@ rpl::producer<EntryUpdate> Changes::realtimeEntryUpdates(
 	return _entryChanges.realtimeUpdates(flag);
 }
 
+void Changes::entryRemoved(not_null<Dialogs::Entry*> entry) {
+	_entryChanges.drop(entry);
+}
+
+void Changes::storyUpdated(
+		not_null<Story*> story,
+		StoryUpdate::Flags flags) {
+	const auto drop = (flags & StoryUpdate::Flag::Destroyed);
+	_storyChanges.updated(story, flags, drop);
+	if (!drop) {
+		scheduleNotifications();
+	}
+}
+
+rpl::producer<StoryUpdate> Changes::storyUpdates(
+		StoryUpdate::Flags flags) const {
+	return _storyChanges.updates(flags);
+}
+
+rpl::producer<StoryUpdate> Changes::storyUpdates(
+		not_null<Story*> story,
+		StoryUpdate::Flags flags) const {
+	return _storyChanges.updates(story, flags);
+}
+
+rpl::producer<StoryUpdate> Changes::storyFlagsValue(
+		not_null<Story*> story,
+		StoryUpdate::Flags flags) const {
+	return _storyChanges.flagsValue(story, flags);
+}
+
+rpl::producer<StoryUpdate> Changes::realtimeStoryUpdates(
+		StoryUpdate::Flag flag) const {
+	return _storyChanges.realtimeUpdates(flag);
+}
+
+void Changes::chatAdminChanged(
+		not_null<PeerData*> peer,
+		not_null<UserData*> user,
+		ChatAdminRights rights,
+		QString rank) {
+	_chatAdminChanges.fire({
+		.peer = peer,
+		.user = user,
+		.rights = rights,
+		.rank = std::move(rank),
+	});
+}
+
+rpl::producer<ChatAdminChange> Changes::chatAdminChanges() const {
+	return _chatAdminChanges.events();
+}
+
+void Changes::chatMemberRankChanged(
+		not_null<PeerData*> peer,
+		not_null<UserData*> user,
+		QString rank) {
+	_chatMemberRankChanges.fire({ peer, user, std::move(rank) });
+}
+
+rpl::producer<ChatMemberRankChange> Changes::chatMemberRankChanges() const {
+	return _chatMemberRankChanges.events();
+}
+
 void Changes::scheduleNotifications() {
 	if (!_notify) {
 		_notify = true;
@@ -242,6 +386,9 @@ void Changes::sendNotifications() {
 	_historyChanges.sendNotifications();
 	_messageChanges.sendNotifications();
 	_entryChanges.sendNotifications();
+	_topicChanges.sendNotifications();
+	_sublistChanges.sendNotifications();
+	_storyChanges.sendNotifications();
 }
 
 } // namespace Data

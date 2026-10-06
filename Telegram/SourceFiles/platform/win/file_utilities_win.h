@@ -16,26 +16,12 @@ inline QString UrlToLocal(const QUrl &url) {
 	return ::File::internal::UrlToLocalDefault(url);
 }
 
+namespace Unfused {
+
 inline void UnsafeOpenUrl(const QString &url) {
 	return ::File::internal::UnsafeOpenUrlDefault(url);
 }
 
+} // namespace Unfused
 } // namespace File
-
-namespace FileDialog {
-
-enum class ImplementationType {
-	Default,
-	Count,
-};
-
-inline QString ImplementationTypeLabel(ImplementationType value) {
-	Unexpected("Value in Platform::FileDialog::ImplementationTypeLabel.");
-}
-
-inline QString ImplementationTypeDescription(ImplementationType value) {
-	return QString();
-}
-
-} // namespace FileDialog
 } // namespace Platform

@@ -65,7 +65,7 @@ QByteArray DnsUserAgent() {
 	static const auto kResult = QByteArray(
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
 		"AppleWebKit/537.36 (KHTML, like Gecko) "
-		"Chrome/92.0.4515.131 Safari/537.36");
+		"Chrome/151.0.0.0 Safari/537.36");
 	return kResult;
 }
 
@@ -104,8 +104,9 @@ std::vector<DnsEntry> ParseDnsResponse(
 		return {};
 	}
 
+	const auto array = (*answerIt).toArray();
 	auto result = std::vector<DnsEntry>();
-	for (const auto elem : (*answerIt).toArray()) {
+	for (const auto elem : array) {
 		if (!elem.isObject()) {
 			LOG(("Config Error: Not an object found "
 				"in Answer array in dns response JSON."));
@@ -114,7 +115,7 @@ std::vector<DnsEntry> ParseDnsResponse(
 		const auto object = elem.toObject();
 		if (typeRestriction) {
 			const auto typeIt = object.find("type");
-			const auto type = int(std::round((*typeIt).toDouble()));
+			const auto type = int(base::SafeRound((*typeIt).toDouble()));
 			if (!(*typeIt).isDouble()) {
 				LOG(("Config Error: Not a number in type field "
 					"in Answer array in dns response JSON."));
@@ -136,7 +137,7 @@ std::vector<DnsEntry> ParseDnsResponse(
 
 		const auto ttlIt = object.find("TTL");
 		const auto ttl = (ttlIt != object.constEnd())
-			? crl::time(std::round((*ttlIt).toDouble()))
+			? crl::time(base::SafeRound((*ttlIt).toDouble()))
 			: crl::time(0);
 		result.push_back({ (*dataIt).toString(), ttl });
 	}

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/details/storage_file_utilities.h"
 
+#include "core/version.h"
 #include "mtproto/mtproto_auth_key.h"
 #include "base/platform/base_platform_file_utilities.h"
 #include "base/openssl_help.h"
@@ -243,7 +244,7 @@ QString ToFilePart(FileKey val) {
 	result.reserve(0x10);
 	for (int32 i = 0; i < 0x10; ++i) {
 		uchar v = (val & 0x0F);
-		result.push_back((v < 0x0A) ? ('0' + v) : ('A' + (v - 0x0A)));
+		result.push_back((v < 0x0A) ? QChar('0' + v) : QChar('A' + (v - 0x0A)));
 		val >>= 4;
 	}
 	return result;
@@ -493,7 +494,7 @@ bool ReadFile(
 				QDateTime mod0 = toTry0.lastModified();
 				QDateTime mod1 = toTry1.lastModified();
 				if (mod0 < mod1) {
-					qSwap(toTry[0], toTry[1]);
+					std::swap(toTry[0], toTry[1]);
 				}
 			} else {
 				toTry[1] = QString();

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/storage_domain.h"
 
+#include "core/version.h"
 #include "storage/details/storage_file_utilities.h"
 #include "storage/serialize_common.h"
 #include "mtproto/mtproto_config.h"
@@ -20,7 +21,7 @@ namespace {
 using namespace details;
 
 [[nodiscard]] QString BaseGlobalPath() {
-	return cWorkingDir() + qsl("tdata/");
+	return cWorkingDir() + u"tdata/"_q;
 }
 
 [[nodiscard]] QString ComputeKeyName(const QString &dataName) {
@@ -48,6 +49,12 @@ StartResult Domain::start(const QByteArray &passcode) {
 	} else if (modern == StartModernResult::IncorrectPasscode) {
 		return StartResult::IncorrectPasscode;
 	} else if (modern == StartModernResult::Failed) {
+		// startModern() may have already read the local key before failing.
+		_localKey = nullptr;
+		_passcodeKey = nullptr;
+		_passcodeKeySalt = QByteArray();
+		_passcodeKeyEncrypted = QByteArray();
+		_hasLocalPasscode = false;
 		startFromScratch();
 		return StartResult::Success;
 	}
@@ -266,10 +273,6 @@ int Domain::oldVersion() const {
 
 void Domain::clearOldVersion() {
 	_oldVersion = 0;
-}
-
-QString Domain::webviewDataPath() const {
-	return BaseGlobalPath() + "webview";
 }
 
 rpl::producer<> Domain::localPasscodeChanged() const {

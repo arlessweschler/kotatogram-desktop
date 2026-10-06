@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "styles/style_chat.h"
 
+#include <QtCore/QtMath>
+
 namespace Stickers {
 
 EmojiImageLoader::EmojiImageLoader(crl::weak_on_queue<EmojiImageLoader> weak)
@@ -26,14 +28,14 @@ void EmojiImageLoader::init(
 	}
 }
 
-QImage EmojiImageLoader::prepare(EmojiPtr emoji) const {
+QImage EmojiImageLoader::prepare(EmojiPtr emoji, bool outline) const {
 	const auto loaded = _images->ensureLoaded();
-	const auto factor = cIntRetinaFactor();
+	const auto factor = style::DevicePixelRatio();
 	const auto side = st::largeEmojiSize + 2 * st::largeEmojiOutline;
 	auto tinted = QImage(
 		QSize(st::largeEmojiSize, st::largeEmojiSize) * factor,
 		QImage::Format_ARGB32_Premultiplied);
-	tinted.fill(BigEmojiOutline() ? Qt::white : QColor(0, 0, 0, 0));
+	tinted.fill(outline ? Qt::white : QColor(0, 0, 0, 0));
 	if (loaded) {
 		QPainter p(&tinted);
 		p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
@@ -68,7 +70,7 @@ QImage EmojiImageLoader::prepare(EmojiPtr emoji) const {
 			{ -1, 1 },
 			{ 1, 1 },
 		} };
-		const auto corrected = int(std::round(delta / sqrt(2.)));
+		const auto corrected = int(base::SafeRound(delta / M_SQRT2));
 		for (const auto &shift : diagonal) {
 			for (auto i = 0; i != corrected; ++i) {
 				p.drawImage(QPoint(delta, delta) + shift * (i + 1), tinted);

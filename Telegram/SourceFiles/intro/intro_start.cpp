@@ -25,7 +25,7 @@ StartWidget::StartWidget(
 	not_null<Data*> data)
 : Step(parent, account, data, true) {
 	setMouseTracking(true);
-	setTitleText(rpl::single(qsl("Kotatogram Desktop")));
+	setTitleText(rpl::single(u"Kotatogram Desktop"_q));
 	setDescriptionText(rktr("ktg_intro_about"));
 	show();
 }
@@ -37,6 +37,19 @@ void StartWidget::submit() {
 
 rpl::producer<QString> StartWidget::nextButtonText() const {
 	return tr::lng_start_msgs();
+}
+
+rpl::producer<> StartWidget::nextButtonFocusRequests() const {
+	return _nextButtonFocusRequests.events();
+}
+
+void StartWidget::activate() {
+	Step::activate();
+	setInnerFocus();
+}
+
+void StartWidget::setInnerFocus() {
+	_nextButtonFocusRequests.fire({});
 }
 
 } // namespace details

@@ -28,13 +28,20 @@ public:
 		VideoTileTrack track,
 		rpl::producer<QSize> trackSize,
 		rpl::producer<bool> pinned,
-		Fn<void()> update);
+		Fn<void()> update,
+		bool self);
 
 	[[nodiscard]] not_null<Webrtc::VideoTrack*> track() const {
 		return _track.track;
 	}
 	[[nodiscard]] not_null<MembersRow*> row() const {
 		return _track.row;
+	}
+	[[nodiscard]] not_null<PeerData*> peer() const {
+		return _peer;
+	}
+	[[nodiscard]] bool rtmp() const {
+		return _rtmp;
 	}
 	[[nodiscard]] QRect geometry() const {
 		return _geometry;
@@ -51,6 +58,10 @@ public:
 	[[nodiscard]] bool visible() const {
 		return !_hidden && !_geometry.isEmpty();
 	}
+	[[nodiscard]] bool self() const {
+		return _self;
+	}
+	[[nodiscard]] bool mirror() const;
 	[[nodiscard]] QRect pinOuter() const;
 	[[nodiscard]] QRect pinInner() const;
 	[[nodiscard]] QRect backOuter() const;
@@ -105,8 +116,9 @@ private:
 
 	const VideoEndpoint _endpoint;
 	const Fn<void()> _update;
+	const VideoTileTrack _track;
+	const not_null<PeerData*> _peer;
 
-	VideoTileTrack _track;
 	QRect _geometry;
 	TileAnimation _animation;
 	rpl::variable<QSize> _trackSize;
@@ -119,6 +131,8 @@ private:
 	bool _topControlsShown = false;
 	bool _pinned = false;
 	bool _hidden = true;
+	bool _rtmp = false;
+	bool _self = false;
 	std::optional<VideoQuality> _quality;
 
 	rpl::lifetime _lifetime;

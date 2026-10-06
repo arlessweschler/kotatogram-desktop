@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/calls_userpic.h"
 
+#include "kotato/kotato_radius.h"
 #include "data/data_peer.h"
 #include "main/main_session.h"
 #include "data/data_changes.h"
@@ -16,9 +17,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo_media.h"
 #include "data/data_file_origin.h"
 #include "ui/empty_userpic.h"
+#include "ui/image/image_prepare.h"
+#include "ui/painter.h"
 #include "apiwrap.h" // requestFullPeer.
 #include "styles/style_calls.h"
-#include "styles/style_widgets.h"
 
 namespace Calls {
 namespace {
@@ -58,25 +60,25 @@ void Userpic::setup(rpl::producer<bool> muted) {
 	_content.setAttribute(Qt::WA_TransparentForMouseEvents);
 
 	_content.paintRequest(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		paint();
 	}, lifetime());
 
 	std::move(
 		muted
-	) | rpl::start_with_next([=](bool muted) {
+	) | rpl::on_next([=](bool muted) {
 		setMuted(muted);
 	}, lifetime());
 
 	_peer->session().changes().peerFlagsValue(
 		_peer,
 		Data::PeerUpdate::Flag::Photo
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		processPhoto();
 	}, lifetime());
 
 	_peer->session().downloaderTaskFinished(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		refreshPhoto();
 	}, lifetime());
 
@@ -91,7 +93,7 @@ void Userpic::setMuteLayout(QPoint position, int size, int stroke) {
 }
 
 void Userpic::paint() {
-	Painter p(&_content);
+	auto p = QPainter(&_content);
 
 	p.drawPixmap(0, 0, _userPhoto);
 	if (_muted && _muteSize > 0) {
@@ -105,21 +107,14 @@ void Userpic::paint() {
 			_mutePosition.y() - _muteSize / 2,
 			_muteSize,
 			_muteSize);
-		switch (cUserpicCornersType()) {
-			case 0:
-				p.drawRoundedRect(rect, 0, 0);
-				break;
-
-			case 1:
-				p.drawRoundedRect(rect, st::buttonRadius, st::buttonRadius);
-				break;
-
-			case 2:
-				p.drawRoundedRect(rect, st::dateRadius, st::dateRadius);
-				break;
-
-			default:
-				p.drawEllipse(rect);
+		const auto muteRadius = ::Kotato::UserpicRadius();
+		if (muteRadius >= 0.5) {
+			p.drawEllipse(rect);
+		} else {
+			p.drawRoundedRect(
+				rect,
+				rect.width() * muteRadius,
+				rect.width() * muteRadius);
 		}
 		st::callMutedPeerIcon.paintInCenter(p, rect);
 	}
@@ -153,7 +148,7 @@ void Userpic::processPhoto() {
 		_photo->wanted(Data::PhotoSize::Thumbnail, _peer->userpicPhotoOrigin());
 	} else {
 		_photo = nullptr;
-		if (_peer->userpicPhotoUnknown() || (photo && !photo->date)) {
+		if (_peer->userpicPhotoUnknown() || (photo && photo->isNull())) {
 			_peer->session().api().requestFullPeer(_peer);
 		}
 	}
@@ -174,44 +169,72 @@ void Userpic::refreshPhoto() {
 		_userPhotoFull = true;
 		createCache(_photo->image(Data::PhotoSize::Thumbnail));
 	} else if (_userPhoto.isNull()) {
-		createCache(_userpic ? _userpic->image() : nullptr);
+		if (const auto cloud = _peer->userpicCloudImage(_userpic)) {
+			auto image = Image(base::duplicate(*cloud));
+			createCache(&image);
+		} else {
+			createCache(nullptr);
+		}
 	}
 }
 
 void Userpic::createCache(Image *image) {
 	const auto size = this->size();
-	const auto real = size * cIntRetinaFactor();
-	auto options = Images::Option::Smooth | Images::Option::Circled;
-	// _useTransparency ? (Images::Option::RoundedLarge | Images::Option::RoundedTopLeft | Images::Option::RoundedTopRight | Images::Option::Smooth) : Images::Option::None;
+	const auto real = size * style::DevicePixelRatio();
+	//_useTransparency
+	//	? (Images::Option::RoundLarge
+	//		| Images::Option::RoundSkipBottomLeft
+	//		| Images::Option::RoundSkipBottomRight)
+	//	: Images::Option::None;
 	if (image) {
 		auto width = image->width();
 		auto height = image->height();
 		if (width > height) {
-			width = qMax((width * real) / height, 1);
+			width = std::max((width * real) / height, 1);
 			height = real;
 		} else {
-			height = qMax((height * real) / width, 1);
+			height = std::max((height * real) / width, 1);
 			width = real;
 		}
+		const auto r = ::Kotato::UserpicRadius();
 		_userPhoto = image->pixNoCache(
-			width,
-			height,
-			options,
-			size,
-			size);
-		_userPhoto.setDevicePixelRatio(cRetinaFactor());
+			{ width, height },
+			{
+				.options = (r >= 0.5)
+					? Images::Option::RoundCircle
+					: Images::Option::None,
+				.outer = { size, size },
+			});
+		if (const auto corner = int(size * r); corner > 0 && r < 0.5) {
+			_userPhoto = Images::PixmapFast(Images::Round(
+				_userPhoto.toImage(),
+				Images::CornersMask(corner)));
+		}
+		_userPhoto.setDevicePixelRatio(style::DevicePixelRatio());
 	} else {
-		auto filled = QImage(QSize(real, real), QImage::Format_ARGB32_Premultiplied);
-		filled.setDevicePixelRatio(cRetinaFactor());
+		auto filled = QImage(
+			QSize(real, real),
+			QImage::Format_ARGB32_Premultiplied);
+		filled.setDevicePixelRatio(style::DevicePixelRatio());
 		filled.fill(Qt::transparent);
 		{
-			Painter p(&filled);
-			Ui::EmptyUserpic(
-				Data::PeerUserpicColor(_peer->id),
-				_peer->name
-			).paint(p, 0, 0, size, size);
+			auto p = QPainter(&filled);
+			const auto r = ::Kotato::UserpicRadius();
+			auto empty = Ui::EmptyUserpic(
+				Ui::EmptyUserpic::UserpicColor(_peer->colorIndex()),
+				_peer->name());
+			if (r >= 0.5) {
+				empty.paintCircle(p, 0, 0, size, size);
+			} else if (r > 0.) {
+				empty.paintRounded(p, 0, 0, size, size, size * r);
+			} else {
+				empty.paintSquare(p, 0, 0, size, size);
+			}
 		}
-		//Images::prepareRound(filled, ImageRoundRadius::Large, RectPart::TopLeft | RectPart::TopRight);
+		//_userPhoto = Images::PixmapFast(Images::Round(
+		//	std::move(filled),
+		//	ImageRoundRadius::Large,
+		//	RectPart::TopLeft | RectPart::TopRight));
 		_userPhoto = Images::PixmapFast(std::move(filled));
 	}
 
